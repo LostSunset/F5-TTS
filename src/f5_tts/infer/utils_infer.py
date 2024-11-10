@@ -218,6 +218,22 @@ def load_model(
     return model
 
 
+def remove_silence_edges(audio, silence_threshold=-42):
+    # Remove silence from the start
+    non_silent_start_idx = silence.detect_leading_silence(audio, silence_threshold=silence_threshold)
+    audio = audio[non_silent_start_idx:]
+
+    # Remove silence from the end
+    non_silent_end_duration = audio.duration_seconds
+    for ms in reversed(audio):
+        if ms.dBFS > silence_threshold:
+            break
+        non_silent_end_duration -= 0.001
+    trimmed_audio = audio[: int(non_silent_end_duration * 1000)]
+
+    return trimmed_audio
+
+
 # preprocess reference audio and text
 
 
@@ -229,7 +245,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
         if clip_short:
             # 1. try to find long silence for clipping
             non_silent_segs = silence.split_on_silence(
-                aseg, min_silence_len=1000, silence_thresh=-50, keep_silence=1000
+                aseg, min_silence_len=1000, silence_thresh=-50, keep_silence=1000, seek_step=10
             )
             non_silent_wave = AudioSegment.silent(duration=0)
             for non_silent_seg in non_silent_segs:
@@ -241,7 +257,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
             # 2. try to find short silence for clipping if 1. failed
             if len(non_silent_wave) > 15000:
                 non_silent_segs = silence.split_on_silence(
-                    aseg, min_silence_len=100, silence_thresh=-40, keep_silence=1000
+                    aseg, min_silence_len=100, silence_thresh=-40, keep_silence=1000, seek_step=10
                 )
                 non_silent_wave = AudioSegment.silent(duration=0)
                 for non_silent_seg in non_silent_segs:
@@ -257,6 +273,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
                 aseg = aseg[:15000]
                 show_info("Audio is over 15s, clipping short. (3)")
 
+        aseg = remove_silence_edges(aseg) + AudioSegment.silent(duration=50)
         aseg.export(f.name, format="wav")
         ref_audio = f.name
 
@@ -265,13 +282,13 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
         audio_data = audio_file.read()
         audio_hash = hashlib.md5(audio_data).hexdigest()
 
-    global _ref_audio_cache
-    if audio_hash in _ref_audio_cache:
-        # Use cached reference text
-        show_info("Using cached reference text...")
-        ref_text = _ref_audio_cache[audio_hash]
-    else:
-        if not ref_text.strip():
+    if not ref_text.strip():
+        global _ref_audio_cache
+        if audio_hash in _ref_audio_cache:
+            # Use cached asr transcription
+            show_info("Using cached reference text...")
+            ref_text = _ref_audio_cache[audio_hash]
+        else:
             global asr_pipe
             if asr_pipe is None:
                 initialize_asr_pipeline(device=device)
@@ -283,11 +300,10 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
                 generate_kwargs={"task": "transcribe"},
                 return_timestamps=False,
             )["text"].strip()
-            show_info("Finished transcription")
-        else:
-            show_info("Using custom reference text...")
-        # Cache the transcribed text
-        _ref_audio_cache[audio_hash] = ref_text
+            # Cache the transcribed text (not caching custom ref_text, enabling users to do manual tweak)
+            _ref_audio_cache[audio_hash] = ref_text
+    else:
+        show_info("Using custom reference text...")
 
     # Ensure ref_text ends with a proper sentence-ending punctuation
     if not ref_text.endswith(". ") and not ref_text.endswith("。"):
@@ -295,6 +311,8 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
             ref_text += " "
         else:
             ref_text += ". "
+
+    print("ref_text  ", ref_text)
 
     return ref_audio, ref_text
 
@@ -473,7 +491,9 @@ def infer_batch_process(
 
 def remove_silence_for_generated_wav(filename):
     aseg = AudioSegment.from_file(filename)
-    non_silent_segs = silence.split_on_silence(aseg, min_silence_len=1000, silence_thresh=-50, keep_silence=500)
+    non_silent_segs = silence.split_on_silence(
+        aseg, min_silence_len=1000, silence_thresh=-50, keep_silence=500, seek_step=10
+    )
     non_silent_wave = AudioSegment.silent(duration=0)
     for non_silent_seg in non_silent_segs:
         non_silent_wave += non_silent_seg
