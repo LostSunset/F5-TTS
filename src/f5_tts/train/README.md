@@ -41,12 +41,17 @@ accelerate config
 
 # .yaml files are under src/f5_tts/configs directory
 accelerate launch src/f5_tts/train/train.py --config-name F5TTS_Base_train.yaml
+
+# possible to overwrite accelerate and hydra config
+accelerate launch --mixed_precision=fp16 src/f5_tts/train/train.py --config-name F5TTS_Small_train.yaml ++datasets.batch_size_per_gpu=19200
 ```
 
 ### 2. Finetuning practice
 Discussion board for Finetuning [#57](https://github.com/SWivid/F5-TTS/discussions/57).
 
 Gradio UI training/finetuning with `src/f5_tts/train/finetune_gradio.py` see [#143](https://github.com/SWivid/F5-TTS/discussions/143).
+
+The `use_ema = True` is harmful for early-stage finetuned checkpoints (which goes just few updates, thus ema weights still dominated by pretrained ones), try turn it off and see if provide better results.
 
 ### 3. Wandb Logging
 
