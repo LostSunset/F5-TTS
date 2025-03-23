@@ -149,7 +149,7 @@ def initialize_asr_pipeline(device: str = device, dtype=None):
         dtype = (
             torch.float16
             if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
+            and torch.cuda.get_device_properties(device).major >= 7
             and not torch.cuda.get_device_name().endswith("[ZLUDA]")
             else torch.float32
         )
@@ -186,7 +186,7 @@ def load_checkpoint(model, ckpt_path, device: str, dtype=None, use_ema=True):
         dtype = (
             torch.float16
             if "cuda" in device
-            and torch.cuda.get_device_properties(device).major >= 6
+            and torch.cuda.get_device_properties(device).major >= 7
             and not torch.cuda.get_device_name().endswith("[ZLUDA]")
             else torch.float32
         )
@@ -289,7 +289,7 @@ def remove_silence_edges(audio, silence_threshold=-42):
 # preprocess reference audio and text
 
 
-def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_info=print, device=device):
+def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_info=print):
     show_info("Converting audio...")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as f:
         aseg = AudioSegment.from_file(ref_audio_orig)
@@ -302,7 +302,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
             non_silent_wave = AudioSegment.silent(duration=0)
             for non_silent_seg in non_silent_segs:
                 if len(non_silent_wave) > 6000 and len(non_silent_wave + non_silent_seg) > 12000:
-                    show_info("Audio is over 15s, clipping short. (1)")
+                    show_info("Audio is over 12s, clipping short. (1)")
                     break
                 non_silent_wave += non_silent_seg
 
@@ -314,7 +314,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
                 non_silent_wave = AudioSegment.silent(duration=0)
                 for non_silent_seg in non_silent_segs:
                     if len(non_silent_wave) > 6000 and len(non_silent_wave + non_silent_seg) > 12000:
-                        show_info("Audio is over 15s, clipping short. (2)")
+                        show_info("Audio is over 12s, clipping short. (2)")
                         break
                     non_silent_wave += non_silent_seg
 
@@ -323,7 +323,7 @@ def preprocess_ref_audio_text(ref_audio_orig, ref_text, clip_short=True, show_in
             # 3. if no proper silence found for clipping
             if len(aseg) > 12000:
                 aseg = aseg[:12000]
-                show_info("Audio is over 15s, clipping short. (3)")
+                show_info("Audio is over 12s, clipping short. (3)")
 
         aseg = remove_silence_edges(aseg) + AudioSegment.silent(duration=50)
         aseg.export(f.name, format="wav")
